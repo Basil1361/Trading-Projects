@@ -1,0 +1,136 @@
+// @version=5
+indicator("Strong Signal RSI Divergence", overlay=true)
+
+// Get user input
+bool Verify           = input.bool(title="Do not follow signals blindly", defval=false, confirm=true,group="Warning")
+int MaxDistance       = input.int(title="Max Bar Distance", defval=50,group="Settings", tooltip = "Calculating Max Distance") //max distance the first and the second low is considering
+int MinDistance       = input.int(title="Min Bar Distance", defval=20,group="Settings", tooltip = "Calculating Min Distance") //min distance between first and second low/high
+int Rsi_Length        = input.int(title="RSI Length", defval=14, minval=1,group="Settings", tooltip = "Calculating RSI Length") // the rsi length we are considering, 14 is defval bcs it is 2 weeks
+float Rsi_Overbought  = input.float(title="RSI Overbought", defval=70.0,group="Settings", tooltip = "Overbought region") // overbought region
+float Rsi_Oversold    = input.float(title="RSI Oversold", defval=30.0,group="Settings", tooltip = "Oversold region") // oversold region
+int length            = input.int(title="Confirmation Length", defval=25,group="Settings", tooltip = "Confirmation Length") // 
+
+// Get RSI value
+rsiValue = ta.rsi(close, Rsi_Length)
+// Confirmation (Testing)
+ema25 = ta.ema(close, (length))
+
+// --------- BULLISH DIVERGENCE --------- //
+var float checkFirstLow     = na // determining the first lowest low
+var float initialLowPrice   = na // determining the initial "cheap" price that falls under oversold zone
+var float initialLowRSI     = na // determining the rsi number for the price
+var int initialLowIndex     = na // tracking the price 
+bool bullishDivergence      = false 
+float swingLowRSI           = ta.lowest(rsiValue, 5) // tracking the lowest rsi point when the price reached its lowest in the rsi
+
+// Save lowest low while RSI is oversold, and store it when market leaves OS condition
+if (rsiValue < Rsi_Oversold or rsiValue[1] < Rsi_Oversold) // if rsi value or the previous rsi value is lower than rsi oversold value, which is 30, the following script will be run
+    if not na(initialLowPrice) // if the first low price has a value
+        initialLowPrice := na // reset it to na
+    if na(checkFirstLow) or low < checkFirstLow // again, if the first low is not available, or the low is lower than the first low
+        checkFirstLow := low // the first low becomes the low
+        initialLowIndex := bar_index //recording the bar location and price
+        initialLowRSI := swingLowRSI // recording this at the rsi level
+else
+    // RSI is no longer OS, save lowest price during OS condition and reset temporary low
+    if not na(checkFirstLow) // is the first low is a value
+        initialLowPrice := checkFirstLow // the first low becomes the initial low price
+    checkFirstLow := na // resets to na
+
+// Check for a second low that is lower than the first, and with a higher RSI value, and within our min/max distance
+if low[1] <= initialLowPrice and low > low[1] and swingLowRSI > initialLowRSI and (bar_index - initialLowIndex <= MaxDistance and bar_index - initialLowIndex >= MinDistance and close > ema25)
+// if the new low is smaller than the saved price, and the low is more than the previous low[1], and the distance is between MinDistance and MaxDistance, the following code will run 
+    bullishDivergence := true
+    line.new(initialLowIndex, initialLowPrice, bar_index - 1, low[1], color=color.green, width=2)
+    initialLowPrice := na
+
+// Draw bullish divergence signal
+plotshape(bullishDivergence, "Bullish Divergence", shape.triangleup, location.belowbar, color.green,size = size.small)
+
+// --------- BEARISH DIVERGENCE --------- //
+var float checkFirstHigh    = na 
+var float initialHighPrice   = na 
+var float initialHighRSI     = na 
+var int initialHighIndex     = na 
+bool bearishDivergence      = false 
+float swingHighRSI           = ta.highest(rsiValue, 5) 
+
+// Save highest high while RSI is overbought, and store it when market leaves OS condition
+if (rsiValue > Rsi_Overbought or rsiValue[1] > Rsi_Overbought)
+    if not na(initialHighPrice)
+        initialHighPrice := na
+    if na(checkFirstHigh) or high > checkFirstHigh
+        checkFirstHigh := high
+        initialHighIndex :=bar_index 
+        initialHighRSI :=swingHighRSI
+
+else
+    if not na(checkFirstHigh)
+        initialHighPrice := checkFirstHigh
+    checkFirstHigh := na
+
+// Check for a second high that is lower than the first, and with a lower RSI value, and within our min/max distance
+if high[1] >= initialHighPrice and high < high[1] and swingHighRSI < initialHighRSI and (bar_index - initialHighIndex <= MaxDistance and bar_index - initialHighIndex >= MinDistance and close < ema25)
+    bearishDivergence := true
+    line.new(initialHighIndex, initialHighPrice, bar_index - 1, high[1], color=color.red, width=2)
+    initialHighPrice := na
+
+// Draw bearish divergence signal
+plotshape(bearishDivergence, "Bearish Divergence", shape.triangledown, location.abovebar, color.red, size = size.small)
+
+// --------- PT/SL --------- //
+
+bool ShowPL = input.bool(title="Enable P&L?",defval=true,group="PT/SL") // showing P&L
+float ptPerc = input.float(title="Profit Target (%)", defval=4.0,group="PT/SL", inline="Y") // Profit target in percentage
+float slPerc = input.float(title="Stop Loss (%)", defval=4.0,group="PT/SL", inline="Y", tooltip = "Profit & Loss Percentage") // Stop loss in percentage
+
+
+// For bullish divergence
+if (ShowPL)
+    if (bullishDivergence)
+        float bullishPT = close * (1 + ptPerc / 100) // Set the profit target above current price
+        float bullishSL = close * (1 - slPerc / 100) // Set the stop loss below current price
+        box.new(bar_index, close, bar_index + 10, bullishPT, border_color=color.gray,bgcolor=color.new(color.green,75))
+        box.new(bar_index, close, bar_index + 10, bullishSL, border_color=color.gray,bgcolor=color.new(color.red,75))
+
+// For bearish divergence
+if (ShowPL)
+    if (bearishDivergence)
+        float bearishPT = close * (1 - ptPerc / 100) // Set the profit target below current price
+        float bearishSL = close * (1 + slPerc / 100) // Set the stop loss above current price
+        box.new(bar_index, close, bar_index + 10, bearishPT, border_color=color.gray, bgcolor=color.new(color.green,75))
+        box.new(bar_index, close, bar_index + 10, bearishSL, border_color=color.gray, bgcolor=color.new(color.red,75))
+
+// --------- Alerts --------- //
+if bullishDivergence
+    alert("A new Bullish Signal is detected" + str.tostring(low[1]) + str.tostring(swingLowRSI - initialLowRSI, "#.##") ,alert.freq_once_per_bar_close)
+
+if bearishDivergence
+    alert("A new Bearish Signal is detected" + str.tostring(high[1]) + str.tostring(swingHighRSI - initialHighRSI, "#.##") ,alert.freq_once_per_bar_close)
+
+alertcondition(bullishDivergence, "RSI Bullish Divergence", "RSI Bullish Divergence Detected,{{close}} on {{ticker}}")
+alertcondition(bearishDivergence, "RSI Bearish Divergence", "RSI Bearish Divergence Detected,{{close}} on {{ticker}}")
+
+// --------- Timeframe --------- //
+offset_val = input.int(title="Label Offset", defval=20,group="Offset", tooltip = "Moving Object")
+showlabels = input.bool(title="Show Labels", defval=true)
+
+monthH = request.security(syminfo.tickerid, 'M', high[1])
+monthL = request.security(syminfo.tickerid, 'M', low[1])
+
+weekH = request.security(syminfo.tickerid, 'W', high[1])
+weekL = request.security(syminfo.tickerid, 'W', low[1])
+
+plot(monthH, title="Monthly High", style=plot.style_linebr, linewidth=2, color=color.red, show_last=1, trackprice=true, offset=offset_val)
+plot(monthL, title="Monthly Low", style=plot.style_linebr, linewidth=2, color=color.green, show_last=1, trackprice=true, offset=offset_val)
+
+plotshape(showlabels ? monthH : na, style=shape.labeldown, location=location.absolute, color=color.red, textcolor = color.white, show_last=1, text="Month High", offset=offset_val)
+plotshape(showlabels ? monthL : na, style=shape.labelup, location=location.absolute, color=color.green, textcolor = color.white, show_last=1, text="Month Low",  offset=offset_val)
+
+plot(weekH, title="Weekly High", style=plot.style_linebr, linewidth=2, color=color.red, show_last=1, trackprice=true, offset=offset_val)
+plot(weekL, title="Weekly Low", style=plot.style_linebr, linewidth=2, color=color.green, show_last=1, trackprice=true, offset=offset_val)
+
+plotshape(showlabels ? weekH : na, style=shape.labeldown, location=location.absolute, color=color.red,  textcolor = color.white, show_last=1, text="Week High",  offset=offset_val)
+plotshape(showlabels ? weekL : na, style=shape.labelup, location=location.absolute, color=color.green,  textcolor = color.white, show_last=1, text="Week Low",  offset=offset_val)
+
+// Trailing Stop 
